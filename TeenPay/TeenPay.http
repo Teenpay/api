@@ -1,0 +1,6 @@
+@TeenPay_HostAddress = http://localhost:5165
+
+GET {{TeenPay_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -1,0 +1,76 @@
+﻿namespace TeenPay.Models;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using Microsoft.EntityFrameworkCore;
+
+    // Таблица users в схеме teenpay
+    [Table("users", Schema = "teenpay")]
+    [Index(nameof(Username), IsUnique = true)]
+    public class TeenpayUser
+    {
+        [Key]
+        [Column("id")]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        public int Id { get; set; }
+
+        [Required]
+        [MaxLength(64)]
+        [Column("username")]
+        public string Username { get; set; } = default!;
+
+        [Required]
+        [Column("password_hash")]
+        public string PasswordHash { get; set; } = default!;
+
+        // другие поля профиля — пример:
+        // [Column("name")] public string? Name { get; set; }
+        // [Column("surname")] public string? Surname { get; set; }
+        // [Column("age")] public int? Age { get; set; }
+        // [Column("child")] public string? Child { get; set; }
+        // [Precision(12, 2)]                       // для NUMERIC(12,2)
+        // [Column("balance", TypeName = "numeric(12,2)")]
+        // public decimal? Balance { get; set; }
+
+        [InverseProperty(nameof(RefreshToken.User))]
+        public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+    }
+
+    // Таблица refresh_tokens
+    [Table("refresh_tokens", Schema = "teenpay")]
+    [Index(nameof(Token), IsUnique = true)]
+    public class RefreshToken
+    {
+        [Key]
+        [Column("id")]
+        [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+        public int Id { get; set; }
+
+        [Required]
+        [MaxLength(200)]
+        [Column("token")]
+        public string Token { get; set; } = default!;
+
+        // timestamptz
+        [Required]
+        [Column("expires_at_utc", TypeName = "timestamptz")]
+        public DateTime ExpiresAtUtc { get; set; }
+
+        [Required]
+        [Column("created_at_utc", TypeName = "timestamptz")]
+        public DateTime CreatedAtUtc { get; set; }   // дефолт now() лучше задать во Fluent API/миграции
+
+        [Column("device_id")]
+        public string? DeviceId { get; set; }
+
+        [Required]
+        [Column("revoked")]
+        public bool Revoked { get; set; }
+
+        [Required]
+        [ForeignKey(nameof(User))]
+        [Column("user_id")]
+        public int UserId { get; set; }
+
+        [InverseProperty(nameof(TeenpayUser.RefreshTokens))]
+        public TeenpayUser User { get; set; } = default!;
+    }
