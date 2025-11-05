@@ -9,72 +9,101 @@ using System.Security.Cryptography;
 using System.Text;
 using TeenPay.Data;
 using TeenPay.Models;
+using System.Diagnostics;
 
-namespace TeenPay.Controllers
+[ApiController]
+[Route("api/auth")]
+public class AuthController : ControllerBase
 {
-    [ApiController]
-    [Route("api/auth")]
-    public class AuthController : ControllerBase
+    private readonly AppDbContext _db;
+    private readonly IConfiguration _cfg;
+    private readonly PasswordHasher<TeenpayUser> _hasher = new();
+
+    public AuthController(AppDbContext db, IConfiguration cfg)
     {
-        private readonly AppDbContext _db;
-        private readonly IConfiguration _cfg;
-        private readonly PasswordHasher<TeenpayUser> _hasher = new();
+        _db = db; _cfg = cfg;
+    }
 
-        public AuthController(AppDbContext db, IConfiguration cfg)
+    // DTO
+    public record RegisterDto(string Username, string Password, string? Email, string? FirstName, string? LastName);
+    public record LoginDto(string Username, string Password, string? DeviceId);
+    public record RefreshDto(string RefreshToken, string? DeviceId);
+    public record UserDto(int Id, string Username, string? Email, string? FirstName, string? LastName);
+
+
+    [AllowAnonymous]
+    [HttpPost("register")]
+    public async Task<IActionResult> Register(RegisterDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
+            return BadRequest("Username and password are required.");
+
+        if (await _db.Set<TeenpayUser>().AnyAsync(u => u.Username == dto.Username))
+            return Conflict("Username already taken.");
+
+        var user = new TeenpayUser
         {
-            _db = db; _cfg = cfg;
-        }
+            Username = dto.Username,
+            Email = dto.Email,
+            FirstName = dto.FirstName,
+            LastName = dto.LastName
+        };
+        user.PasswordHash = _hasher.HashPassword(user, dto.Password);
 
-        public record RegisterDto(string Username, string Password);
-        public record LoginDto(string Username, string Password, string? DeviceId);
-        public record RefreshDto(string RefreshToken, string? DeviceId);
+        _db.Add(user);
+        await _db.SaveChangesAsync();
 
-        // --- публичные (без логина) ---
-        [AllowAnonymous]
-        [HttpPost("register")]
-        public async Task<IActionResult> Register(RegisterDto dto)
+        return Ok(new { user.Id, user.Username });
+    }
+
+    [AllowAnonymous]
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(LoginDto dto)
+    {
+        //brake point nada
+        var user = await _db.Set<TeenpayUser>()
+            .Include(u => u.RefreshTokens)
+            .FirstOrDefaultAsync(u => u.Username == dto.Username);
+
+        if (user is null) return Unauthorized("Invalid credentials.");
+
+        var vr = _hasher.VerifyHashedPassword(user, user.PasswordHash, dto.Password);
+        if (vr == PasswordVerificationResult.Failed) return Unauthorized("Invalid credentials.");
+
+        var (access, expires) = GenerateAccessToken(user);
+        var refresh = GenerateRefreshToken();
+
+        user.RefreshTokens.Add(new RefreshToken
         {
-            if (string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
-                return BadRequest("Username and password are required.");
+            Token = refresh,
+            CreatedAtUtc = DateTime.UtcNow,
+            ExpiresAtUtc = DateTime.UtcNow.AddDays(14),
+            DeviceId = dto.DeviceId
+        });
 
-            if (await _db.Set<TeenpayUser>().AnyAsync(u => u.Username == dto.Username))
-                return Conflict("Username already taken.");
+        await _db.SaveChangesAsync();
 
-            var user = new TeenpayUser { Username = dto.Username };
-            user.PasswordHash = _hasher.HashPassword(user, dto.Password);
-
-            _db.Add(user);
-            await _db.SaveChangesAsync();
-
-            return Ok(new { user.Id, user.Username });
-        }
-
-        [AllowAnonymous]
-        [HttpPost("login")]
-        public async Task<IActionResult> Login(LoginDto dto)
+        // вернём профиль в ответе
+        return Ok(new
         {
-            var user = await _db.Set<TeenpayUser>()
-                .Include(u => u.RefreshTokens)
-                .FirstOrDefaultAsync(u => u.Username == dto.Username);
+            accessToken = access,
+            refreshToken = refresh,
+            expiresIn = (int)expires.TotalSeconds,
+            user = new { user.Id, user.Username, user.Email, user.FirstName, user.LastName }
+        });
+    }
 
-            if (user is null) return Unauthorized("Invalid credentials.");
+        [Authorize]
+        [HttpGet("me")]
+        public async Task<IActionResult> Me()
+        {
+        var idStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!int.TryParse(idStr, out var userId)) return Unauthorized(); // ← int, чтобы не было Guid-int ошибки
 
-            var vr = _hasher.VerifyHashedPassword(user, user.PasswordHash, dto.Password);
-            if (vr == PasswordVerificationResult.Failed) return Unauthorized("Invalid credentials.");
+        var u = await _db.Set<TeenpayUser>().FirstOrDefaultAsync(x => x.Id == userId);
+        if (u is null) return NotFound();
 
-            var (access, expires) = GenerateAccessToken(user);
-            var refresh = GenerateRefreshToken();
-
-            user.RefreshTokens.Add(new RefreshToken
-            {
-                Token = refresh,
-                CreatedAtUtc = DateTime.UtcNow,
-                ExpiresAtUtc = DateTime.UtcNow.AddDays(14),
-                DeviceId = dto.DeviceId
-            });
-
-            await _db.SaveChangesAsync();
-            return Ok(new { accessToken = access, refreshToken = refresh, expiresIn = (int)expires.TotalSeconds });
+        return Ok(new UserDto(u.Id, u.Username, u.Email, u.FirstName, u.LastName));
         }
 
         [AllowAnonymous]
@@ -93,7 +122,7 @@ namespace TeenPay.Controllers
 
             var (access, expires) = GenerateAccessToken(rt.User);
 
-            // Ротация refresh-токена
+            // refresh-token rotation
             rt.Revoked = true;
             var newRt = new RefreshToken
             {
@@ -109,7 +138,7 @@ namespace TeenPay.Controllers
             return Ok(new { accessToken = access, refreshToken = newRt.Token, expiresIn = (int)expires.TotalSeconds });
         }
 
-        // --- только для залогиненных ---
+        // --- For login-users ---
         [Authorize]
         [HttpPost("logout")]
         public async Task<IActionResult> Logout(RefreshDto dto)
@@ -158,5 +187,4 @@ namespace TeenPay.Controllers
             return Base64UrlEncoder.Encode(bytes);
         }
     }
-}
 

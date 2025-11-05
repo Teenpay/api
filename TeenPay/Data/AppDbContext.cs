@@ -41,6 +41,26 @@ public class AppDbContext : DbContext
              .HasForeignKey(x => x.UserId)
              .OnDelete(DeleteBehavior.Cascade);
         });
+
+        modelBuilder.Entity<TeenpayUser>(e =>
+        {
+            e.ToTable("users");
+            e.HasKey(x => x.Id);
+
+            e.Property(x => x.Username).HasColumnName("username").HasMaxLength(64).IsRequired();
+            e.Property(x => x.PasswordHash).HasColumnName("password_hash").IsRequired();
+
+            // NEW:
+            e.Property(x => x.Email).HasColumnName("email").HasMaxLength(128);
+            e.Property(x => x.FirstName).HasColumnName("first_name").HasMaxLength(64);
+            e.Property(x => x.LastName).HasColumnName("last_name").HasMaxLength(64);
+
+            e.HasIndex(x => x.Username).IsUnique();
+            // Если хочешь уникальность email — раскомментируй:
+            e.HasIndex(x => x.Email).IsUnique();
+
+        });
+
     }
 }
 

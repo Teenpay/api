@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
     // Таблица users в схеме teenpay
     [Table("users", Schema = "teenpay")]
     [Index(nameof(Username), IsUnique = true)]
+
     public class TeenpayUser
     {
         [Key]
@@ -22,14 +23,17 @@ using Microsoft.EntityFrameworkCore;
         [Column("password_hash")]
         public string PasswordHash { get; set; } = default!;
 
-        // другие поля профиля — пример:
-        // [Column("name")] public string? Name { get; set; }
-        // [Column("surname")] public string? Surname { get; set; }
-        // [Column("age")] public int? Age { get; set; }
-        // [Column("child")] public string? Child { get; set; }
-        // [Precision(12, 2)]                       // для NUMERIC(12,2)
-        // [Column("balance", TypeName = "numeric(12,2)")]
-        // public decimal? Balance { get; set; }
+        [Required]
+        [Column("email")]
+        public string? Email { get; set; }
+
+        [Required]
+        [Column("first_name")]
+        public string? FirstName { get; set; }
+
+        [Required]
+        [Column("last_name")]
+        public string? LastName { get; set; }
 
         [InverseProperty(nameof(RefreshToken.User))]
         public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
@@ -73,4 +77,5 @@ using Microsoft.EntityFrameworkCore;
 
         [InverseProperty(nameof(TeenpayUser.RefreshTokens))]
         public TeenpayUser User { get; set; } = default!;
+
     }
