@@ -35,7 +35,15 @@ using Microsoft.EntityFrameworkCore;
         [Column("last_name")]
         public string? LastName { get; set; }
 
-        [InverseProperty(nameof(RefreshToken.User))]
+        [Required]
+        [Column("phone_number")]
+        public string? PhoneNumber { get; set; }  
+    
+        [Required]
+        [Column("role")]
+        public string? Role { get; set; }          // "Child" или "Parent"
+
+    [InverseProperty(nameof(RefreshToken.User))]
         public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
     }
 

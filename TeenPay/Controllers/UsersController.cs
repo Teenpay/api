@@ -6,7 +6,6 @@ using System.Text.Json;
 using TeenPay.Models;
 using Npgsql;
 using NpgsqlTypes;
-using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using System.Security.Claims;
@@ -15,7 +14,6 @@ using TeenPay.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 
 namespace TeenPay.Controllers
 {

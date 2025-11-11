@@ -58,6 +58,8 @@ public class AppDbContext : DbContext
             e.HasIndex(x => x.Username).IsUnique();
             // Если хочешь уникальность email — раскомментируй:
             e.HasIndex(x => x.Email).IsUnique();
+            e.Property(x => x.PhoneNumber).HasColumnName("phone");
+            e.Property(x => x.Role).HasColumnName("role");
 
         });
 

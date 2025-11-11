@@ -29,7 +29,7 @@ public class AuthController : ControllerBase
     public record LoginDto(string Username, string Password, string? DeviceId);
     public record RefreshDto(string RefreshToken, string? DeviceId);
     public record UserDto(int Id, string Username, string? Email, string? FirstName, string? LastName);
-
+    public record ForgotPasswordDto(string Username, string Role, string Phone);
 
     [AllowAnonymous]
     [HttpPost("register")]
@@ -93,10 +93,10 @@ public class AuthController : ControllerBase
         });
     }
 
-        [Authorize]
-        [HttpGet("me")]
-        public async Task<IActionResult> Me()
-        {
+    [Authorize]
+    [HttpGet("me")]
+    public async Task<IActionResult> Me()
+    {
         var idStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!int.TryParse(idStr, out var userId)) return Unauthorized(); // ← int, чтобы не было Guid-int ошибки
 
@@ -104,87 +104,142 @@ public class AuthController : ControllerBase
         if (u is null) return NotFound();
 
         return Ok(new UserDto(u.Id, u.Username, u.Email, u.FirstName, u.LastName));
-        }
+    }
 
-        [AllowAnonymous]
-        [HttpPost("refresh")]
-        public async Task<IActionResult> Refresh(RefreshDto dto)
+    [AllowAnonymous]
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh(RefreshDto dto)
+    {
+        var rt = await _db.Set<RefreshToken>()
+            .Include(t => t.User)
+            .FirstOrDefaultAsync(t => t.Token == dto.RefreshToken && !t.Revoked);
+
+        if (rt is null || rt.ExpiresAtUtc < DateTime.UtcNow)
+            return Unauthorized("Invalid refresh token.");
+
+        if (!string.IsNullOrEmpty(dto.DeviceId) && rt.DeviceId != dto.DeviceId)
+            return Unauthorized("Device mismatch.");
+
+        var (access, expires) = GenerateAccessToken(rt.User);
+
+        // refresh-token rotation
+        rt.Revoked = true;
+        var newRt = new RefreshToken
         {
-            var rt = await _db.Set<RefreshToken>()
-                .Include(t => t.User)
-                .FirstOrDefaultAsync(t => t.Token == dto.RefreshToken && !t.Revoked);
+            Token = GenerateRefreshToken(),
+            CreatedAtUtc = DateTime.UtcNow,
+            ExpiresAtUtc = DateTime.UtcNow.AddDays(14),
+            DeviceId = rt.DeviceId,
+            UserId = rt.UserId
+        };
+        _db.Add(newRt);
+        await _db.SaveChangesAsync();
 
-            if (rt is null || rt.ExpiresAtUtc < DateTime.UtcNow)
-                return Unauthorized("Invalid refresh token.");
+        return Ok(new { accessToken = access, refreshToken = newRt.Token, expiresIn = (int)expires.TotalSeconds });
+    }
 
-            if (!string.IsNullOrEmpty(dto.DeviceId) && rt.DeviceId != dto.DeviceId)
-                return Unauthorized("Device mismatch.");
+    // --- For login-users ---
+    [Authorize]
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(RefreshDto dto)
+    {
+        var rt = await _db.Set<RefreshToken>().FirstOrDefaultAsync(t => t.Token == dto.RefreshToken);
+        if (rt != null) { rt.Revoked = true; await _db.SaveChangesAsync(); }
+        return Ok();
+    }
 
-            var (access, expires) = GenerateAccessToken(rt.User);
+    [Authorize]
+    [HttpGet("check")]
+    public IActionResult Check()
+    {
+        var p = HttpContext.User;
+        return Ok(new { authenticated = p.Identity?.IsAuthenticated == true });
+    }
 
-            // refresh-token rotation
-            rt.Revoked = true;
-            var newRt = new RefreshToken
-            {
-                Token = GenerateRefreshToken(),
-                CreatedAtUtc = DateTime.UtcNow,
-                ExpiresAtUtc = DateTime.UtcNow.AddDays(14),
-                DeviceId = rt.DeviceId,
-                UserId = rt.UserId
-            };
-            _db.Add(newRt);
-            await _db.SaveChangesAsync();
-
-            return Ok(new { accessToken = access, refreshToken = newRt.Token, expiresIn = (int)expires.TotalSeconds });
-        }
-
-        // --- For login-users ---
-        [Authorize]
-        [HttpPost("logout")]
-        public async Task<IActionResult> Logout(RefreshDto dto)
+    // --- helpers ---
+    private (string token, TimeSpan expires) GenerateAccessToken(TeenpayUser user)
+    {
+        var jwt = _cfg.GetSection("Jwt");
+        var claims = new[]
         {
-            var rt = await _db.Set<RefreshToken>().FirstOrDefaultAsync(t => t.Token == dto.RefreshToken);
-            if (rt != null) { rt.Revoked = true; await _db.SaveChangesAsync(); }
-            return Ok();
-        }
-
-        [Authorize]
-        [HttpGet("check")]
-        public IActionResult Check()
-        {
-            var p = HttpContext.User;
-            return Ok(new { authenticated = p.Identity?.IsAuthenticated == true });
-        }
-
-        // --- helpers ---
-        private (string token, TimeSpan expires) GenerateAccessToken(TeenpayUser user)
-        {
-            var jwt = _cfg.GetSection("Jwt");
-            var claims = new[]
-            {
                 new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                 new Claim(ClaimTypes.Name, user.Username),
             };
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt["Key"]!));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt["Key"]!));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-            var expires = TimeSpan.FromMinutes(60); // 1 час
-            var token = new JwtSecurityToken(
-                issuer: jwt["Issuer"],
-                audience: jwt["Audience"],
-                claims: claims,
-                expires: DateTime.UtcNow.Add(expires),
-                signingCredentials: creds);
+        var expires = TimeSpan.FromMinutes(60); // 1 час
+        var token = new JwtSecurityToken(
+            issuer: jwt["Issuer"],
+            audience: jwt["Audience"],
+            claims: claims,
+            expires: DateTime.UtcNow.Add(expires),
+            signingCredentials: creds);
 
-            return (new JwtSecurityTokenHandler().WriteToken(token), expires);
-        }
-
-        private static string GenerateRefreshToken()
-        {
-            var bytes = RandomNumberGenerator.GetBytes(32);
-            return Base64UrlEncoder.Encode(bytes);
-        }
+        return (new JwtSecurityTokenHandler().WriteToken(token), expires);
     }
+
+    private static string GenerateRefreshToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(32);
+        return Base64UrlEncoder.Encode(bytes);
+    }
+
+    [AllowAnonymous]
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword(ForgotPasswordDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Username) ||
+            string.IsNullOrWhiteSpace(dto.Role) ||
+            string.IsNullOrWhiteSpace(dto.Phone))
+            return BadRequest("Nepilnīgi dati.");
+
+        var user = await _db.Set<TeenpayUser>()
+            .FirstOrDefaultAsync(u => u.Username == dto.Username);
+
+        // роль сравниваем гибко (EN + LV)
+        static bool RoleMatches(string? dbRole, string requested)
+        {
+            var req = requested.Trim().ToLowerInvariant();
+            return dbRole?.ToLowerInvariant() switch
+            {
+                "parent" => req is "parent" or "vecāks" or "vecaks",
+                "child" => req is "child" or "bērns" or "berns",
+                _ => false
+            };
+        }
+
+        if (user is null || !RoleMatches(user.Role, dto.Role))
+            return BadRequest("Dati nesakrīt.");
+
+        // телефон
+        string Normalize(string s) => new string(s.Where(char.IsDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(user.PhoneNumber) ||
+            Normalize(user.PhoneNumber) != Normalize(dto.Phone))
+            return BadRequest("Numurs nav reģistrēts sistēmā");
+
+        // генерим временный пароль, хэшируем и сохраняем (как было)
+        var temp = GenerateReadablePassword(10);
+        var hasher = new PasswordHasher<TeenpayUser>();
+        user.PasswordHash = hasher.HashPassword(user, temp);
+        await _db.SaveChangesAsync();
+
+        // TODO: отправка SMS с паролем
+        return Ok(new { message = "Parole tiks nosūtīta uz norādīto numuru." });
+    }
+    // Удобочитаемый временный пароль (без 0/O/I/l)
+    private static string GenerateReadablePassword(int len)
+    {
+        const string chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+        var bytes = new byte[len];
+        rng.GetBytes(bytes);
+        var sb = new System.Text.StringBuilder(len);
+        foreach (var b in bytes)
+            sb.Append(chars[b % chars.Length]);
+        return sb.ToString();
+    }
+}
 
