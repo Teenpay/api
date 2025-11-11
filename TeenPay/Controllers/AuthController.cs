@@ -30,6 +30,7 @@ public class AuthController : ControllerBase
     public record RefreshDto(string RefreshToken, string? DeviceId);
     public record UserDto(int Id, string Username, string? Email, string? FirstName, string? LastName);
     public record ForgotPasswordDto(string Username, string Role, string Phone);
+    public record DevSetPasswordDto(string Username, string NewPassword);
 
     [AllowAnonymous]
     [HttpPost("register")]
@@ -241,5 +242,17 @@ public class AuthController : ControllerBase
             sb.Append(chars[b % chars.Length]);
         return sb.ToString();
     }
+
+    [AllowAnonymous]
+    [HttpPost("dev-set-password")]
+    public async Task<IActionResult> DevSetPassword([FromBody] DevSetPasswordDto dto)
+    {
+        var u = await _db.Set<TeenpayUser>().FirstOrDefaultAsync(x => x.Username == dto.Username.Trim());
+        if (u == null) return NotFound("User not found");
+        u.PasswordHash = new PasswordHasher<TeenpayUser>().HashPassword(u, dto.NewPassword);
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Password updated" });
+    }  
+
 }
 
