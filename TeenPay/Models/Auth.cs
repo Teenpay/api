@@ -2,9 +2,10 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
-    // Таблица users в схеме teenpay
-    [Table("users", Schema = "teenpay")]
+// Таблица users в схеме teenpay
+[Table("users", Schema = "teenpay")]
     [Index(nameof(Username), IsUnique = true)]
 
     public class TeenpayUser
@@ -41,7 +42,7 @@ using Microsoft.EntityFrameworkCore;
     
         [Required]
         [Column("role")]
-        public string? Role { get; set; }          // "Child" или "Parent"
+        public string? Role { get; set; }          // "Child" vai "Parent"
 
     [InverseProperty(nameof(RefreshToken.User))]
         public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
@@ -69,7 +70,7 @@ using Microsoft.EntityFrameworkCore;
 
         [Required]
         [Column("created_at_utc", TypeName = "timestamptz")]
-        public DateTime CreatedAtUtc { get; set; }   // дефолт now() лучше задать во Fluent API/миграции
+        public DateTime CreatedAtUtc { get; set; }   
 
         [Column("device_id")]
         public string? DeviceId { get; set; }

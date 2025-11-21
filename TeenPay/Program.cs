@@ -50,7 +50,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         o.SaveToken = false;
     });
 
-// <-- авторизация по умолчанию: всё закрыто, кроме [AllowAnonymous]
+// <-- Autorizacija pec noklusejuma
 builder.Services.AddAuthorization(options =>
 {
     options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
@@ -58,13 +58,13 @@ builder.Services.AddAuthorization(options =>
         .Build();
 });
 
-// Регистрируем Swagger
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Регистрируем Health Checks
+// Health Checks
 app.MapHealthChecks("/health/db");
 
 // HTTP Request Pipeline

@@ -230,7 +230,7 @@ public class AuthController : ControllerBase
         // TODO: отправка SMS с паролем
         return Ok(new { message = "Parole tiks nosūtīta uz norādīto numuru." });
     }
-    // Удобочитаемый временный пароль (без 0/O/I/l)
+    // Pagaidu parole (bez 0/O/I/l)
     private static string GenerateReadablePassword(int len)
     {
         const string chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
