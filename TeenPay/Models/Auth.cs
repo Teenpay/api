@@ -44,6 +44,10 @@ using Microsoft.IdentityModel.Tokens;
         [Column("role")]
         public string? Role { get; set; }          // "Child" vai "Parent"
 
+        [Required]
+        [Column("balance")]
+        public decimal Balance { get; set; }
+
     [InverseProperty(nameof(RefreshToken.User))]
         public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
     }

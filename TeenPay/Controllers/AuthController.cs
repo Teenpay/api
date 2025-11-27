@@ -24,14 +24,6 @@ public class AuthController : ControllerBase
         _db = db; _cfg = cfg;
     }
 
-    // DTO
-    public record RegisterDto(string Username, string Password, string? Email, string? FirstName, string? LastName);
-    public record LoginDto(string Username, string Password, string? DeviceId);
-    public record RefreshDto(string RefreshToken, string? DeviceId);
-    public record UserDto(int Id, string Username, string? Email, string? FirstName, string? LastName);
-    public record ForgotPasswordDto(string Username, string Role, string Phone);
-    public record DevSetPasswordDto(string Username, string NewPassword);
-
     [AllowAnonymous]
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterDto dto)
@@ -92,19 +84,6 @@ public class AuthController : ControllerBase
             expiresIn = (int)expires.TotalSeconds,
             user = new { user.Id, user.Username, user.Email, user.FirstName, user.LastName }
         });
-    }
-
-    [Authorize]
-    [HttpGet("me")]
-    public async Task<IActionResult> Me()
-    {
-        var idStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!int.TryParse(idStr, out var userId)) return Unauthorized(); // ← int, чтобы не было Guid-int ошибки
-
-        var u = await _db.Set<TeenpayUser>().FirstOrDefaultAsync(x => x.Id == userId);
-        if (u is null) return NotFound();
-
-        return Ok(new UserDto(u.Id, u.Username, u.Email, u.FirstName, u.LastName));
     }
 
     [AllowAnonymous]
