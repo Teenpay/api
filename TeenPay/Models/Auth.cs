@@ -37,7 +37,7 @@ using Microsoft.IdentityModel.Tokens;
         public string? LastName { get; set; }
 
         [Required]
-        [Column("phone_number")]
+        [Column("phone")]
         public string? PhoneNumber { get; set; }  
     
         [Required]

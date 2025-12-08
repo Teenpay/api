@@ -26,7 +26,7 @@ namespace TeenPay.Models
     public record ForgotPasswordDto(string Username, string Role, string Phone);
     public record DevSetPasswordDto(string Username, string NewPassword);
 
-    // DTO для платежа — ОБРАТИ ВНИМАНИЕ: тут уже int, не string
+    // DTO for payment
     public record CreatePaymentDto(
         int ChildUserId,
         int MerchantUserId,

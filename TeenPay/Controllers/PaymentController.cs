@@ -8,7 +8,7 @@ namespace TeenPay.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [AllowAnonymous] // чтобы Swagger не требовал токен
+    [AllowAnonymous] // pagaidam, lai nelietot login
     public class PaymentController : ControllerBase
     {
         private readonly AppDbContext _db;
@@ -25,21 +25,21 @@ namespace TeenPay.Controllers
             if (dto.Amount <= 0)
                 return BadRequest(new { error = "bad_amount" });
 
-            // ищем ребёнка по Id
+            // meklejam bernu pec Id
             var child = await _db.Users
                 .SingleOrDefaultAsync(u => u.Id == dto.ChildUserId);
 
             if (child == null)
                 return NotFound(new { error = "child_not_found" });
 
-            // ищем продавца/столовую по Id
+            // Meklejam pardeveju Id
             var merchant = await _db.Users
                 .SingleOrDefaultAsync(u => u.Id == dto.MerchantUserId);
 
             if (merchant == null)
                 return NotFound(new { error = "merchant_not_found" });
 
-            // по желанию: проверка, что это ребёнок
+            // if needs - check if it is child role
             // if (!string.Equals(child.Role, "C", StringComparison.OrdinalIgnoreCase))
             //     return BadRequest(new { error = "child_wrong_role" });
 
@@ -48,7 +48,7 @@ namespace TeenPay.Controllers
                 return BadRequest(new
                 {
                     error = "insufficient_funds",
-                    message = "На балансе ребёнка недостаточно средств."
+                    message = "Insufficient funds."
                 });
             }
 
