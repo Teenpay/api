@@ -11,14 +11,16 @@ public class AppDbContext : DbContext
     // --- DB SETS ---
     public DbSet<TeenpayUser> Users => Set<TeenpayUser>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
-    public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<School> Schools => Set<School>();
+    public DbSet<StudentSchool> StudentSchools => Set<StudentSchool>();
+    public DbSet<Transaction> Transactions => Set<Transaction>();
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // схема
         modelBuilder.HasDefaultSchema("teenpay");
+        modelBuilder.Entity<StudentSchool>().ToTable("student_schools", "teenpay");
 
         // -------- USERS TABLE --------
         modelBuilder.Entity<TeenpayUser>(e =>

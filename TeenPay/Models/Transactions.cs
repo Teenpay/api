@@ -15,6 +15,7 @@ namespace TeenPay.Models
         public DateTime createdat { get; set; }
         public int? childid { get; set; }
 
-        public int? schoolid { get; set; }      // если есть в БД
+        public int? schoolid { get; set; }
+        // если есть в БД
     }
 }

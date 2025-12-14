@@ -38,8 +38,11 @@ using Microsoft.IdentityModel.Tokens;
 
         [Required]
         [Column("phone")]
-        public string? PhoneNumber { get; set; }  
-    
+        public string? PhoneNumber { get; set; }
+
+        [Column("personal_code")]
+        public string? PersonalCode { get; set; }
+
         [Required]
         [Column("role")]
         public string? Role { get; set; }          // "Child" vai "Parent"

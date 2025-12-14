@@ -104,6 +104,20 @@ namespace TeenPay.Controllers
 
                 return Ok(new UserDto(u.Id, u.Username, u.Email, u.FirstName, u.LastName));
             }
+            [HttpGet("me/balance")]
+            [Authorize]
+        public async Task<IActionResult> GetMyBalance()
+        {
+            var idStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(idStr, out var userId)) return Unauthorized();
+
+            var balance = await _db.Users
+                .Where(u => u.Id == userId)
+                .Select(u => u.Balance)
+                .SingleAsync();
+
+            return Ok(new { balance });
+        }
     }
     
 }
