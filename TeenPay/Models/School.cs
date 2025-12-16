@@ -10,6 +10,8 @@ namespace TeenPay.Models
         public string? City { get; set; }
         public string? Address { get; set; }
         public string? code { get; set; }
+        public int? PosUserId { get; set; }
+        public TeenpayUser? PosUser { get; set; }
     }
 
 
@@ -28,6 +30,9 @@ namespace TeenPay.Models
 
         [Column("payment_code")]
         public string PaymentCode { get; set; } = null!;
+
+        [Column("pos_user_id")]
+        public int? PosUserId { get; set; } = null!;
     }
 
     // связь ребёнок-школа
