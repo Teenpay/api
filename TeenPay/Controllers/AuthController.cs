@@ -82,7 +82,7 @@ public class AuthController : ControllerBase
             accessToken = access,
             refreshToken = refresh,
             expiresIn = (int)expires.TotalSeconds,
-            user = new { user.Id, user.Username, user.Email, user.FirstName, user.LastName }
+            user = new { user.Id, user.Username, user.Email, user.FirstName, user.LastName, personalCode = user.PersonalCode }
         });
     }
 

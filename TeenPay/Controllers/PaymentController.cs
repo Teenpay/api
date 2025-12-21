@@ -1,8 +1,12 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Net;
+using System.Text.Json;
+using System.Text;
 using TeenPay.Data;
 using TeenPay.Models;
+using TeenPay_App.Models;
 
 namespace TeenPay.Controllers;
 
@@ -16,22 +20,21 @@ public class PaymentController : ControllerBase
     [HttpPost("pay")]
     [AllowAnonymous]
     public async Task<IActionResult> PayByQr(
-      [FromQuery] string pk,
-      [FromQuery] string schoolcode,
-      [FromQuery] decimal summ)
+      [FromQuery]  string data)
     {
-        if (string.IsNullOrWhiteSpace(pk))
-            return BadRequest(new { error = "pk_required" });
-        if (string.IsNullOrWhiteSpace(schoolcode))
-            return BadRequest(new { error = "schoolcode_required" });
-        if (summ <= 0)
-            return BadRequest(new { error = "bad_amount" });
+        QrPaymentPayload obj = JsonSerializer.Deserialize<QrPaymentPayload>(data);
 
-        var child = await _db.Users.SingleOrDefaultAsync(u => u.PersonalCode == pk);
+        if (string.IsNullOrWhiteSpace(obj.OrgCode))
+            return BadRequest(new { error = "schoolcode_required" });
+
+        if (obj.Amount == null || obj.Amount <= 0)
+            return BadRequest(new { error = "amount_required" });
+
+        var child = await _db.Users.SingleOrDefaultAsync(u => u.Id == obj.UserId);
         if (child == null)
             return NotFound(new { error = "person_not_found" });
 
-        var school = await _db.Schools.SingleOrDefaultAsync(s => s.code == schoolcode);
+        var school = await _db.Schools.SingleOrDefaultAsync(s => s.code == obj.OrgCode);
         if (school == null)
             return NotFound(new { error = "school_not_found" });
 
@@ -49,14 +52,14 @@ public class PaymentController : ControllerBase
         if (pos == null)
             return BadRequest(new { error = "pos_user_not_found" });
 
-        if (child.Balance < summ)
+        if (child.Balance < obj.Amount)
             return BadRequest(new { error = "insufficient_funds" });
 
         await using var tx = await _db.Database.BeginTransactionAsync();
 
         // перевод
-        child.Balance -= summ;
-        pos.Balance += summ;
+        child.Balance -= (decimal)obj.Amount;
+        pos.Balance += (decimal)obj.Amount;
 
         // транзакция ребёнка (минус)
         _db.Transactions.Add(new Transaction
@@ -64,7 +67,7 @@ public class PaymentController : ControllerBase
             userid = child.Id,
             childid = child.Id,
             schoolid = school.Id,
-            amount = -summ,
+            amount = (decimal)obj.Amount,
             kind = "PAYMENT",
             description = $"Payment to {school.Name} ({school.code})",
             createdat = DateTime.UtcNow
@@ -76,7 +79,7 @@ public class PaymentController : ControllerBase
             userid = pos.Id,
             childid = child.Id,       // кто заплатил
             schoolid = school.Id,
-            amount = summ,
+            amount = (decimal)obj.Amount,
             kind = "PAYMENT",
             description = $"Income from {child.Username} ({school.code})",
             createdat = DateTime.UtcNow
@@ -88,9 +91,9 @@ public class PaymentController : ControllerBase
         return Ok(new
         {
             status = "SUCCEEDED",
-            pk,
-            schoolcode,
-            summ,
+            child.PersonalCode,
+            obj.OrgCode,
+            obj.Amount,
             childBalanceAfter = child.Balance,
             posBalanceAfter = pos.Balance
         });

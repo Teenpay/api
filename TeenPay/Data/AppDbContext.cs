@@ -62,6 +62,9 @@ public class AppDbContext : DbContext
                 .HasColumnName("balance")
                 .HasColumnType("numeric(12,2)");
 
+            e.Property(x => x.PersonalCode)
+            .HasColumnName("personal_code");
+
             e.HasIndex(x => x.Username).IsUnique();
             e.HasIndex(x => x.Email).IsUnique();
         });

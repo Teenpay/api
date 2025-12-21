@@ -178,4 +178,160 @@ public class TransactionsController : ControllerBase
 
         return Ok(result);
     }
+
+    [HttpGet("children")]
+    public async Task<ActionResult<List<TransactionDto>>> GetChildrenTransactions()
+    {
+        // кто залогинен
+        var userIdStr =
+            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+            User.FindFirstValue("sub");
+
+        if (string.IsNullOrWhiteSpace(userIdStr) || !long.TryParse(userIdStr, out var parentId))
+            return Unauthorized();
+
+        // ✅ 1) получить ids детей этого родителя
+        var childIds = await _db.ParentChildren
+            .Where(pc => pc.ParentUserId == (int)parentId)
+            .Select(pc => pc.ChildUserId)
+            .Distinct()
+            .ToListAsync();
+
+        if (childIds.Count == 0)
+            return Ok(new List<TransactionDto>());
+
+        // ✅ 2) получить транзакции детей
+        var childTx = await _db.Transactions
+            .Where(t => childIds.Contains(t.userid))
+            .OrderByDescending(t => t.createdat)
+            .Select(t => new
+            {
+                t.id,
+                t.userid,
+                t.amount,
+                t.kind,
+                t.description,
+                t.createdat,
+                t.childid,
+                t.schoolid
+            })
+            .ToListAsync();
+
+        if (childTx.Count == 0)
+            return Ok(new List<TransactionDto>());
+
+        // ✅ 3) справочники username/schools как у тебя
+        var involvedUserIds = childTx
+            .Select(x => x.userid)
+            .Concat(childTx.Where(x => x.childid != null).Select(x => x.childid!.Value))
+            .Distinct()
+            .ToList();
+
+        var userNames = await _db.Users
+            .Where(u => involvedUserIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.Username })
+            .ToDictionaryAsync(x => x.Id, x => x.Username);
+
+        var schoolIds = childTx
+            .Where(x => x.schoolid != null)
+            .Select(x => x.schoolid!.Value)
+            .Distinct()
+            .ToList();
+
+        var schools = await _db.Schools
+            .Where(s => schoolIds.Contains(s.Id))
+            .Select(s => new { s.Id, s.Name })
+            .ToDictionaryAsync(x => x.Id, x => x.Name);
+
+        // ✅ 4) как и у тебя: ищем парные PAYMENT для TOPUP (чтобы отобразить sender)
+        var pairCandidates = await _db.Transactions
+            .Where(t =>
+                t.kind == "PAYMENT" &&
+                (
+                    (t.childid != null && childIds.Contains(t.childid.Value)) ||
+                    (t.schoolid != null && schoolIds.Contains(t.schoolid.Value))
+                )
+            )
+            .Select(t => new { t.userid, t.amount, t.createdat, t.childid, t.schoolid })
+            .ToListAsync();
+
+        var senderIds = pairCandidates.Select(x => x.userid).Distinct().ToList();
+
+        var senderUsernames = await _db.Users
+            .Where(u => senderIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.Username })
+            .ToDictionaryAsync(x => x.Id, x => x.Username);
+
+        // ✅ 5) собираем DTO
+        var result = new List<TransactionDto>(childTx.Count);
+
+        foreach (var t in childTx)
+        {
+            var meUsername = userNames.TryGetValue(t.userid, out var meU) ? meU : $"user#{t.userid}";
+
+            string sender = "—";
+            string receiver = "—";
+
+            // A) Родитель -> ребёнок: у ребёнка TOPUP(+)
+            if (t.kind == "TOPUP" && t.amount > 0)
+            {
+                // получатель: ребёнок (t.userid)
+                receiver = meUsername;
+
+                // отправитель: ищем парный PAYMENT(-X) по childid
+                if (t.childid != null)
+                {
+                    var from = pairCandidates
+                        .Where(p =>
+                            p.childid == t.childid &&
+                            p.amount == -t.amount &&
+                            p.createdat >= t.createdat.AddSeconds(-10) &&
+                            p.createdat <= t.createdat.AddSeconds(10))
+                        .OrderByDescending(p => p.createdat)
+                        .FirstOrDefault();
+
+                    if (from != null && senderUsernames.TryGetValue(from.userid, out var sn))
+                        sender = sn;
+                    else
+                        sender = "parent";
+                }
+                else
+                {
+                    sender = "parent";
+                }
+            }
+
+            // B) Ребёнок платит школе: PAYMENT(-)
+            if (t.kind == "PAYMENT" && t.amount < 0 && t.schoolid != null)
+            {
+                sender = meUsername;
+                receiver = schools.TryGetValue(t.schoolid.Value, out var s) ? s : $"school#{t.schoolid.Value}";
+            }
+
+            // C) Остальные случаи — хотя бы покажем, кто сделал запись
+            if (sender == "—" && receiver == "—")
+            {
+                var tt = schools.Where(s => s.Key == t.schoolid).FirstOrDefault();
+                
+                sender = meUsername;
+                receiver = tt.Value;
+            }
+
+            result.Add(new TransactionDto
+            {
+                Id = t.id,
+                SenderUsername = sender,
+                ReceiverUsername = receiver,
+                CreatedAt = t.createdat,
+                Description = t.description,
+                Amount = t.amount,
+                Kind = t.kind
+            });
+        }
+
+        // общий порядок
+        result = result.OrderByDescending(x => x.CreatedAt).ToList();
+
+        return Ok(result);
+    }
 }
