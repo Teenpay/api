@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<Transaction> Transactions => Set<Transaction>();
     public DbSet<ParentChild> ParentChildren => Set<ParentChild>();
     public DbSet<TopUpRequest> TopUpRequests => Set<TopUpRequest>();
+    public DbSet<Receipt> Receipts => Set<Receipt>();
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -105,6 +106,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.Name).HasColumnName("name");
             e.Property(x => x.City).HasColumnName("city");
             e.Property(x => x.Address).HasColumnName("address");
+            e.Property(x => x.code).HasColumnName("code");
             e.Property(x => x.PosUserId).HasColumnName("pos_user_id");
         });
 
@@ -150,6 +152,26 @@ public class AppDbContext : DbContext
             e.Property(x => x.RequestedAt).HasColumnName("requested_at");
             e.Property(x => x.ApprovedAt).HasColumnName("approved_at");
             e.Property(x => x.Note).HasColumnName("note");
+        });
+
+        // --------RECEIPTS --------
+        modelBuilder.Entity<Receipt>(e =>
+        {
+            e.ToTable("receipts", "teenpay");
+            e.HasKey(x => x.Id);
+
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.ReceiptNo).HasColumnName("receipt_no").HasMaxLength(8).IsRequired();
+            e.HasIndex(x => x.ReceiptNo).IsUnique();
+
+            e.Property(x => x.Amount).HasColumnName("amount").HasColumnType("numeric(12,2)");
+            e.Property(x => x.Kind).HasColumnName("kind").IsRequired();
+
+            e.Property(x => x.PayerUserId).HasColumnName("payer_user_id");
+            e.Property(x => x.PayeeUserId).HasColumnName("payee_user_id");
+
+            e.Property(x => x.SchoolId).HasColumnName("school_id");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
         });
 
         base.OnModelCreating(modelBuilder);

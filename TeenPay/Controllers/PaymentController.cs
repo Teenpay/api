@@ -1,9 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Net;
 using System.Text.Json;
-using System.Text;
 using TeenPay.Data;
 using TeenPay.Models;
 using TeenPay_App.Models;
@@ -17,12 +15,17 @@ public class PaymentController : ControllerBase
     private readonly AppDbContext _db;
     public PaymentController(AppDbContext db) => _db = db;
 
+    private static string NewReceiptNo()
+        => Random.Shared.Next(0, 100_000_000).ToString("D8");
+
     [HttpPost("pay")]
     [AllowAnonymous]
-    public async Task<IActionResult> PayByQr(
-      [FromQuery]  string data)
+    public async Task<IActionResult> PayByQr([FromQuery] string data)
     {
-        QrPaymentPayload obj = JsonSerializer.Deserialize<QrPaymentPayload>(data);
+        var obj = JsonSerializer.Deserialize<QrPaymentPayload>(data);
+
+        if (obj == null)
+            return BadRequest(new { error = "invalid_payload" });
 
         if (string.IsNullOrWhiteSpace(obj.OrgCode))
             return BadRequest(new { error = "schoolcode_required" });
@@ -38,13 +41,11 @@ public class PaymentController : ControllerBase
         if (school == null)
             return NotFound(new { error = "school_not_found" });
 
-        // ребёнок должен быть привязан к школе
         var linked = await _db.StudentSchools
             .AnyAsync(ss => ss.UserId == child.Id && ss.SchoolId == school.Id);
         if (!linked)
             return BadRequest(new { error = "not_linked_to_school" });
 
-        // у школы должен быть POS
         if (school.PosUserId == null)
             return BadRequest(new { error = "school_has_no_pos" });
 
@@ -52,50 +53,68 @@ public class PaymentController : ControllerBase
         if (pos == null)
             return BadRequest(new { error = "pos_user_not_found" });
 
-        if (child.Balance < obj.Amount)
+        var amount = (decimal)obj.Amount;
+
+        if (child.Balance < amount)
             return BadRequest(new { error = "insufficient_funds" });
 
         await using var tx = await _db.Database.BeginTransactionAsync();
 
-        // перевод
-        child.Balance -= (decimal)obj.Amount;
-        pos.Balance += (decimal)obj.Amount;
+        // 1) перевод баланса
+        child.Balance -= amount;
+        pos.Balance += amount;
 
-        // транзакция ребёнка (минус)
+        // 2) транзакции
         _db.Transactions.Add(new Transaction
         {
             userid = child.Id,
             childid = child.Id,
             schoolid = school.Id,
-            amount = (decimal)obj.Amount,
+            amount = -amount,
             kind = "PAYMENT",
             description = $"Payment to {school.Name} ({school.code})",
             createdat = DateTime.UtcNow
         });
 
-        // транзакция POS (плюс)
         _db.Transactions.Add(new Transaction
         {
             userid = pos.Id,
-            childid = child.Id,       // кто заплатил
+            childid = child.Id,
             schoolid = school.Id,
-            amount = (decimal)obj.Amount,
-            kind = "PAYMENT",
+            amount = amount,
+            kind = "TOPUP",
             description = $"Income from {child.Username} ({school.code})",
             createdat = DateTime.UtcNow
         });
 
+        // 3) чеки (2 штуки)
+        var receiptNo = NewReceiptNo();
+
+        var rChild = new Receipt
+        {
+            ReceiptNo = receiptNo,       // можно общий номер
+            Amount = amount,
+            Kind = "PAYMENT",
+            PayerUserId = child.Id,
+            PayeeUserId = pos.Id,
+            SchoolId = school.Id,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _db.Receipts.Add(rChild);
+
+        // 4) сохраняем, чтобы появились Id
         await _db.SaveChangesAsync();
         await tx.CommitAsync();
 
         return Ok(new
         {
             status = "SUCCEEDED",
-            child.PersonalCode,
-            obj.OrgCode,
-            obj.Amount,
+            amount,
             childBalanceAfter = child.Balance,
-            posBalanceAfter = pos.Balance
+            posBalanceAfter = pos.Balance,
+
+            receiptChild = new { id = rChild.Id, no = rChild.ReceiptNo },
         });
     }
 }

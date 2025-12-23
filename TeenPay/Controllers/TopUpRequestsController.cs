@@ -28,6 +28,9 @@ public class TopUpRequestsController : ControllerBase
     }
 
     // 1) РЕБЁНОК: создать запрос
+    private static string NewReceiptNo()
+        => Random.Shared.Next(0, 100_000_000).ToString("D8");
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateTopUpRequestDto dto)
     {
@@ -114,7 +117,8 @@ public class TopUpRequestsController : ControllerBase
             userid = parent.Id,
             kind = "TOPUP",
             amount = -dto.Amount,
-            description = $"Top up child @{child.Username} (request #{req.Id})"
+            description = $"Top up child @{child.Username} (request #{req.Id})",
+            createdat = DateTime.UtcNow
         });
 
         _db.Transactions.Add(new Transaction
@@ -122,12 +126,46 @@ public class TopUpRequestsController : ControllerBase
             userid = child.Id,
             kind = "TOPUP",
             amount = dto.Amount,
-            description = $"Received top up from parent @{parent.Username} (request #{req.Id})"
+            description = $"Received top up from parent @{parent.Username} (request #{req.Id})",
+            createdat = DateTime.UtcNow
         });
 
-        await _db.SaveChangesAsync();
+        // ✅ 2 receipts: parent (out) + child (in)
+        var receiptNo = NewReceiptNo();
+        var now = DateTime.UtcNow;
+
+        var rParent = new Receipt
+        {
+            ReceiptNo = receiptNo,
+            Amount = dto.Amount,
+            Kind = "TOPUP_OUT",        // списание у родителя
+            PayerUserId = parent.Id,
+            PayeeUserId = child.Id,
+            SchoolId = null,
+            CreatedAt = now
+        };
+
+        var rChild = new Receipt
+        {
+            ReceiptNo = receiptNo,
+            Amount = dto.Amount,
+            Kind = "TOPUP_IN",         // пополнение у ребёнка
+            PayerUserId = parent.Id,
+            PayeeUserId = child.Id,
+            SchoolId = null,
+            CreatedAt = now
+        };
+
+        _db.Receipts.AddRange(rParent, rChild);
+
+        await _db.SaveChangesAsync();   // ✅ после этого появятся rParent.Id / rChild.Id
         await tx.CommitAsync();
 
-        return Ok(new { ok = true });
+        return Ok(new
+        {
+            ok = true,
+            receiptParent = new { id = rParent.Id, no = rParent.ReceiptNo },
+            receiptChild = new { id = rChild.Id, no = rChild.ReceiptNo }
+        });
     }
 }

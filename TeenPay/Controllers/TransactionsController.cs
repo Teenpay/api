@@ -128,37 +128,31 @@ public class TransactionsController : ControllerBase
                 }
             }
 
-            // B) Оплата в POS/школу (PAYMENT - у ребёнка, TOPUP + у школы/POS)
+            // B) Оплата в школу (PAYMENT - у ребёнка, TOPUP + у POS/школы)
             if (t.schoolid != null)
             {
-                var schoolName = schools.TryGetValue(t.schoolid.Value, out var s) ? s : $"school#{t.schoolid.Value}";
+                var schoolName = schools.TryGetValue(t.schoolid.Value, out var s)
+                    ? s
+                    : $"school#{t.schoolid.Value}";
 
+                // ✅ Если я ребёнок и у меня PAYMENT (-) — показываем: ребёнок -> школа
                 if (t.kind == "PAYMENT" && t.amount < 0)
                 {
-                    // Ребёнок платит: No=ребёнок(me), Kam=школа
                     sender = meUsername;
                     receiver = schoolName;
                 }
+                // ✅ Если я POS/работник и у меня TOPUP (+) — показываем: ребёнок -> школа
                 else if (t.kind == "TOPUP" && t.amount > 0)
                 {
-                    // POS/школа получает: No=кто заплатил (ищем парный PAYMENT), Kam=школа
-                    var from = pairCandidates
-                        .Where(p =>
-                            p.schoolid == t.schoolid &&
-                            p.amount == -t.amount &&
-                            p.createdat >= t.createdat.AddSeconds(-10) &&
-                            p.createdat <= t.createdat.AddSeconds(10))
-                        .OrderByDescending(p => p.createdat)
-                        .FirstOrDefault();
+                    receiver = schoolName;
 
-                    if (from != null && senderUsernames.TryGetValue(from.userid, out var sn))
-                        sender = sn;
+                    if (t.childid != null && childUsernames.TryGetValue(t.childid.Value, out var childName))
+                        sender = childName;
                     else
                         sender = "student";
-
-                    receiver = schoolName;
                 }
             }
+
 
             // если ничего не подошло — хотя бы No=me
             if (sender == "—" && receiver == "—")
@@ -302,20 +296,29 @@ public class TransactionsController : ControllerBase
             }
 
             // B) Ребёнок платит школе: PAYMENT(-)
+            /*   if (t.kind == "PAYMENT" && t.amount < 0 && t.schoolid != null)
+               {
+                   sender = meUsername;
+                   receiver = schools.TryGetValue(t.schoolid.Value, out var s) ? s : $"school#{t.schoolid.Value}";
+               } */
+
+            // B) Ребёнок платит школе: PAYMENT(-)
             if (t.kind == "PAYMENT" && t.amount < 0 && t.schoolid != null)
             {
                 sender = meUsername;
-                receiver = schools.TryGetValue(t.schoolid.Value, out var s) ? s : $"school#{t.schoolid.Value}";
+                receiver = schools.TryGetValue(t.schoolid.Value, out var s)
+                    ? s
+                    : $"school#{t.schoolid.Value}";
             }
 
             // C) Остальные случаи — хотя бы покажем, кто сделал запись
-            if (sender == "—" && receiver == "—")
+           /* if (sender == "—" && receiver == "—")
             {
                 var tt = schools.Where(s => s.Key == t.schoolid).FirstOrDefault();
                 
                 sender = meUsername;
                 receiver = tt.Value;
-            }
+            } */
 
             result.Add(new TransactionDto
             {
@@ -327,6 +330,7 @@ public class TransactionsController : ControllerBase
                 Amount = t.amount,
                 Kind = t.kind
             });
+
         }
 
         // общий порядок
