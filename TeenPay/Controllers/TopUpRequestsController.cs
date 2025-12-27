@@ -131,14 +131,15 @@ public class TopUpRequestsController : ControllerBase
         });
 
         // ✅ 2 receipts: parent (out) + child (in)
-        var receiptNo = NewReceiptNo();
+        var receiptNoParent = NewReceiptNo();
+        var receiptNoChild = NewReceiptNo();
         var now = DateTime.UtcNow;
 
         var rParent = new Receipt
         {
-            ReceiptNo = receiptNo,
+            ReceiptNo = receiptNoParent,
             Amount = dto.Amount,
-            Kind = "TOPUP_OUT",        // списание у родителя
+            Kind = "TOPUP_OUT",
             PayerUserId = parent.Id,
             PayeeUserId = child.Id,
             SchoolId = null,
@@ -147,9 +148,9 @@ public class TopUpRequestsController : ControllerBase
 
         var rChild = new Receipt
         {
-            ReceiptNo = receiptNo,
+            ReceiptNo = receiptNoChild,
             Amount = dto.Amount,
-            Kind = "TOPUP_IN",         // пополнение у ребёнка
+            Kind = "TOPUP_IN",
             PayerUserId = parent.Id,
             PayeeUserId = child.Id,
             SchoolId = null,

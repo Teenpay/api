@@ -95,11 +95,17 @@ public class ReceiptsController : ControllerBase
             if (r.SchoolId != null && schools.TryGetValue((int)r.SchoolId.Value, out var sn))
                 schoolName = sn;
 
+            // ✅ знак суммы для текущего пользователя
+            var signed = (r.PayerUserId == meId) ? -r.Amount : r.Amount;
+            var direction = signed >= 0 ? "IN" : "OUT";
+
             return new ReceiptDto
             {
                 Id = r.Id,
                 ReceiptNo = r.ReceiptNo,
                 Amount = r.Amount,
+                SignedAmount = signed,     // ✅ ВАЖНО для MAUI
+                Direction = direction,     // ✅ если используешь
                 CreatedAt = r.CreatedAt,
                 FromName = fromName,
                 ToName = toName,
