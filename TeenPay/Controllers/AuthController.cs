@@ -82,7 +82,7 @@ public class AuthController : ControllerBase
             accessToken = access,
             refreshToken = refresh,
             expiresIn = (int)expires.TotalSeconds,
-            user = new { user.Id, user.Username, user.Email, user.FirstName, user.LastName, personalCode = user.PersonalCode }
+            user = new { user.Id, user.Username, user.Email, user.FirstName, user.LastName, personalCode = user.PersonalCode, role = user.Role }
         });
     }
 
@@ -231,7 +231,7 @@ public class AuthController : ControllerBase
         u.PasswordHash = new PasswordHasher<TeenpayUser>().HashPassword(u, dto.NewPassword);
         await _db.SaveChangesAsync();
         return Ok(new { message = "Password updated" });
-    }  
+    }
 
 }
 
