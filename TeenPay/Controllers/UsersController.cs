@@ -118,6 +118,70 @@ namespace TeenPay.Controllers
 
             return Ok(new { balance });
         }
+        // ================== UPDATE EMAIL ==================
+        [Authorize]
+        [HttpPut("me/email")]
+        public async Task<IActionResult> UpdateMyEmail([FromBody] UpdateEmailDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Email) || !dto.Email.Contains("@"))
+                return BadRequest("Invalid email.");
+
+            var idStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(idStr, out var userId))
+                return Unauthorized();
+
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null)
+                return NotFound("User not found.");
+
+            user.Email = dto.Email.Trim();
+            await _db.SaveChangesAsync();
+
+            return Ok(new { message = "Email updated" });
+        }
+
+        // ================== CHANGE PASSWORD ==================
+        [Authorize]
+        [HttpPut("me/password")]
+        public async Task<IActionResult> ChangeMyPassword([FromBody] ChangePasswordDto dto)
+        {
+            if (string.IsNullOrWhiteSpace(dto.OldPassword) ||
+                string.IsNullOrWhiteSpace(dto.NewPassword))
+                return BadRequest("Password fields are required.");
+
+            if (dto.NewPassword.Length < 6)
+                return BadRequest("Password must be at least 6 characters.");
+
+            var idStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(idStr, out var userId))
+                return Unauthorized();
+
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null)
+                return NotFound("User not found.");
+
+            var hasher = new PasswordHasher<TeenpayUser>();
+            var check = hasher.VerifyHashedPassword(user, user.PasswordHash, dto.OldPassword);
+            if (check == PasswordVerificationResult.Failed)
+                return BadRequest("Current password is incorrect.");
+
+            user.PasswordHash = hasher.HashPassword(user, dto.NewPassword);
+            await _db.SaveChangesAsync();
+
+            return Ok(new { message = "Password updated" });
+        }
+        public sealed class UpdateEmailDto
+        {
+            public string Email { get; set; } = "";
+        }
+
+        public sealed class ChangePasswordDto
+        {
+            public string OldPassword { get; set; } = "";
+            public string NewPassword { get; set; } = "";
+        }
+
+
     }
-    
+
 }
