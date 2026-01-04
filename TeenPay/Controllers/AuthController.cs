@@ -29,10 +29,10 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Register(RegisterDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.Username) || string.IsNullOrWhiteSpace(dto.Password))
-            return BadRequest("Username and password are required.");
+            return BadRequest("Nepieciešams lietotājvārds un parole.");
 
         if (await _db.Set<TeenpayUser>().AnyAsync(u => u.Username == dto.Username))
-            return Conflict("Username already taken.");
+            return Conflict("Lietotājvārds jau ir aizņemts.");
 
         var user = new TeenpayUser
         {
@@ -58,10 +58,10 @@ public class AuthController : ControllerBase
             .Include(u => u.RefreshTokens)
             .FirstOrDefaultAsync(u => u.Username == dto.Username);
 
-        if (user is null) return Unauthorized("Invalid credentials.");
+        if (user is null) return Unauthorized("Nepareizas autentifikācijas dati.");
 
         var vr = _hasher.VerifyHashedPassword(user, user.PasswordHash, dto.Password);
-        if (vr == PasswordVerificationResult.Failed) return Unauthorized("Invalid credentials.");
+        if (vr == PasswordVerificationResult.Failed) return Unauthorized("Nepareizas autentifikācijas dati.");
 
         var (access, expires) = GenerateAccessToken(user);
         var refresh = GenerateRefreshToken();
@@ -95,10 +95,10 @@ public class AuthController : ControllerBase
             .FirstOrDefaultAsync(t => t.Token == dto.RefreshToken && !t.Revoked);
 
         if (rt is null || rt.ExpiresAtUtc < DateTime.UtcNow)
-            return Unauthorized("Invalid refresh token.");
+            return Unauthorized("Nederīgs atjaunošanas žetons.");
 
         if (!string.IsNullOrEmpty(dto.DeviceId) && rt.DeviceId != dto.DeviceId)
-            return Unauthorized("Device mismatch.");
+            return Unauthorized("Ierīces neatbilstība.");
 
         var (access, expires) = GenerateAccessToken(rt.User);
 
@@ -227,10 +227,10 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> DevSetPassword([FromBody] DevSetPasswordDto dto)
     {
         var u = await _db.Set<TeenpayUser>().FirstOrDefaultAsync(x => x.Username == dto.Username.Trim());
-        if (u == null) return NotFound("User not found");
+        if (u == null) return NotFound("Lietotājs nav atrasts");
         u.PasswordHash = new PasswordHasher<TeenpayUser>().HashPassword(u, dto.NewPassword);
         await _db.SaveChangesAsync();
-        return Ok(new { message = "Password updated" });
+        return Ok(new { message = "Parole atjaunināta" });
     }
 
 }

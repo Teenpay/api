@@ -12,34 +12,47 @@ namespace TeenPay.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[Authorize]
+[Authorize] // Visi šī kontroliera endpointi pieejami tikai autorizētam lietotājam
 public class ReceiptsController : ControllerBase
 {
+    // DB konteksts čeku izgūšanai un saistīto datu (lietotāji, skolas) ielādei
     private readonly AppDbContext _db;
     public ReceiptsController(AppDbContext db) => _db = db;
 
+    // ==========================================================
+    // Palīgmetode: nosaka pašreizējā lietotāja ID no JWT claimiem
+    // ==========================================================
     private int CurrentUserId()
     {
+        // Meklē lietotāja identifikatoru vairākos iespējamos claimos
         var raw =
             User.FindFirstValue(ClaimTypes.NameIdentifier)
             ?? User.FindFirstValue("sub")
             ?? User.FindFirstValue("id");
 
+        // Ja ID nav atrodams, piekļuve nav korekta (nav derīga autorizācija)
         if (string.IsNullOrWhiteSpace(raw))
-            throw new UnauthorizedAccessException("Missing user id claim.");
+            throw new UnauthorizedAccessException("Trūkst lietotāja identifikatora pieprasījums.");
 
+        // Pārvērš ID uz int (projekta līmenī lietotāju ID tiek lietots kā skaitlis)
         return int.Parse(raw);
     }
 
+    // ==========================================================
+    // GET /api/receipts
+    // Funkcija: atgriež “manus čekus” (kur es esmu maksātājs vai saņēmējs)
+    // ==========================================================
     [HttpGet]
     public async Task<IActionResult> My()
     {
         var meId = CurrentUserId();
 
-        // 1) берём чеки, где я payer или payee
+        // 1) Atlasām čekus, kuros pašreizējais lietotājs ir payer vai payee
+        // AsNoTracking => tikai lasīšanai (ātrāk, jo nav nepieciešams tracking)
         var rows = await _db.Receipts.AsNoTracking()
             .Where(r => r.PayerUserId == meId || r.PayeeUserId == meId)
             .OrderByDescending(r => r.CreatedAt)
+            // Izvēlamies tikai laukus, kuri nepieciešami DTO izveidei
             .Select(r => new
             {
                 r.Id,
@@ -53,14 +66,16 @@ public class ReceiptsController : ControllerBase
             })
             .ToListAsync();
 
+        // Ja čeku nav, atgriež tukšu sarakstu (nevis kļūdu)
         if (rows.Count == 0)
             return Ok(new List<ReceiptDto>());
 
-        // 2) подтягиваем имена людей
+        // 2) Ielādējam cilvēku vārdus (payer/payee) vienā piegājienā
         var userIds = rows.SelectMany(x => new[] { x.PayerUserId, x.PayeeUserId })
             .Distinct()
             .ToList();
 
+        // Lietotājus pārvēršam vārdnīcā: userId -> FullName vai Username
         var users = await _db.Users.AsNoTracking()
             .Where(u => userIds.Contains(u.Id))
             .Select(u => new
@@ -74,7 +89,7 @@ public class ReceiptsController : ControllerBase
                 x => string.IsNullOrWhiteSpace(x.FullName) ? x.Username : x.FullName
             );
 
-        // 3) подтягиваем школы
+        // 3) Ielādējam skolu nosaukumus (ja čekam ir piesaistīta skola)
         var schoolIds = rows.Where(x => x.SchoolId != null)
             .Select(x => (int)x.SchoolId!.Value)
             .Distinct()
@@ -85,18 +100,23 @@ public class ReceiptsController : ControllerBase
             .Select(s => new { s.Id, s.Name })
             .ToDictionaryAsync(x => x.Id, x => x.Name);
 
-        // 4) собираем DTO
+        // 4) Savācam rezultātu kā ReceiptDto sarakstu (ērti MAUI pusē)
         var result = rows.Select(r =>
         {
+            // Payer/Payee vārdi, ja nav atrasts – fallback uz user#ID
             var fromName = users.TryGetValue(r.PayerUserId, out var fn) ? fn : $"user#{r.PayerUserId}";
             var toName = users.TryGetValue(r.PayeeUserId, out var tn) ? tn : $"user#{r.PayeeUserId}";
 
+            // Skolas nosaukums, ja SchoolId ir norādīts
             string? schoolName = null;
             if (r.SchoolId != null && schools.TryGetValue((int)r.SchoolId.Value, out var sn))
                 schoolName = sn;
 
-            // ✅ знак суммы для текущего пользователя
+            // “SignedAmount”: ja es esmu maksātājs, tad summa man ir ar mīnusu,
+            // ja es esmu saņēmējs – ar plusu (ērti sarakstam/krāsošanai UI)
             var signed = (r.PayerUserId == meId) ? -r.Amount : r.Amount;
+
+            // ✅ Virziens: IN (ienākums) vai OUT (izdevums)
             var direction = signed >= 0 ? "IN" : "OUT";
 
             return new ReceiptDto
@@ -104,8 +124,8 @@ public class ReceiptsController : ControllerBase
                 Id = r.Id,
                 ReceiptNo = r.ReceiptNo,
                 Amount = r.Amount,
-                SignedAmount = signed,     // ✅ ВАЖНО для MAUI
-                Direction = direction,     // ✅ если используешь
+                SignedAmount = signed,     // svarīgi, lai UI var rādīt ar +/- zīmi
+                Direction = direction,     // var izmantot filtrēšanai vai ikonai
                 CreatedAt = r.CreatedAt,
                 FromName = fromName,
                 ToName = toName,
@@ -113,23 +133,31 @@ public class ReceiptsController : ControllerBase
             };
         }).ToList();
 
+        // Atgriež “manu čeku” sarakstu
         return Ok(result);
     }
 
+    // ==========================================================
+    // GET /api/receipts/{id}/pdf
+    // Funkcija: ģenerē un atgriež PDF konkrētam čekam pēc tā ID
+    // ==========================================================
     [HttpGet("{id:long}/pdf")]
     public async Task<IActionResult> Pdf(long id)
     {
         var meId = CurrentUserId();
 
+        // Atrod čeku pēc ID
         var r = await _db.Receipts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == id);
 
+        // Ja čeks nav atrasts
         if (r == null) return NotFound();
 
-        // доступ только участникам
+        // Drošība: PDF var saņemt tikai čeka dalībnieki (payer vai payee)
         if (r.PayerUserId != meId && r.PayeeUserId != meId)
             return Forbid();
 
+        // Ielādē payer/payee datus (vārds/uzvārds vai username)
         var userIds = new[] { r.PayerUserId, r.PayeeUserId }.Distinct().ToList();
 
         var users = await _db.Users.AsNoTracking()
@@ -145,6 +173,7 @@ public class ReceiptsController : ControllerBase
         string payerName = users.TryGetValue(r.PayerUserId, out var p) ? p : $"user#{r.PayerUserId}";
         string payeeName = users.TryGetValue(r.PayeeUserId, out var q) ? q : $"user#{r.PayeeUserId}";
 
+        // Ja čekam ir skola, ielādē skolas nosaukumu
         string? schoolName = null;
         if (r.SchoolId != null)
         {
@@ -154,6 +183,7 @@ public class ReceiptsController : ControllerBase
                 .FirstOrDefaultAsync();
         }
 
+        // Ģenerē PDF (kā byte[])
         var bytes = GenerateReceiptPdf(
             receiptNo: r.ReceiptNo,
             kind: r.Kind,
@@ -164,24 +194,30 @@ public class ReceiptsController : ControllerBase
             school: schoolName
         );
 
+        // Atgriež PDF failu lejupielādei/atvēršanai
         return File(bytes, "application/pdf", $"receipt_{r.ReceiptNo}.pdf");
     }
 
-    // ✅ NEW: PDF по номеру чека (ReceiptNo), например 03394084
+    // ==========================================================
+    // GET /api/receipts/by-no/{receiptNo}/pdf
+    // Funkcija: tas pats PDF, bet čeku meklē pēc ReceiptNo (numura)
+    // ==========================================================
     [HttpGet("by-no/{receiptNo}/pdf")]
     public async Task<IActionResult> PdfByNo(string receiptNo)
     {
         var meId = CurrentUserId();
 
+        // Atrod čeku pēc čeka numura (ReceiptNo)
         var r = await _db.Receipts.AsNoTracking()
             .FirstOrDefaultAsync(x => x.ReceiptNo == receiptNo);
 
         if (r == null) return NotFound();
 
-        // доступ только участникам
+        // Drošība: PDF pieejams tikai čeka dalībniekiem
         if (r.PayerUserId != meId && r.PayeeUserId != meId)
             return Forbid();
 
+        // Ielādē payer/payee vārdus
         var userIds = new[] { r.PayerUserId, r.PayeeUserId }.Distinct().ToList();
 
         var users = await _db.Users.AsNoTracking()
@@ -197,6 +233,7 @@ public class ReceiptsController : ControllerBase
         string payerName = users.TryGetValue(r.PayerUserId, out var p) ? p : $"user#{r.PayerUserId}";
         string payeeName = users.TryGetValue(r.PayeeUserId, out var q) ? q : $"user#{r.PayeeUserId}";
 
+        // Ielādē skolas nosaukumu, ja ir
         string? schoolName = null;
         if (r.SchoolId != null)
         {
@@ -206,6 +243,7 @@ public class ReceiptsController : ControllerBase
                 .FirstOrDefaultAsync();
         }
 
+        // Ģenerē PDF
         var bytes = GenerateReceiptPdf(
             receiptNo: r.ReceiptNo,
             kind: r.Kind,
@@ -216,9 +254,14 @@ public class ReceiptsController : ControllerBase
             school: schoolName
         );
 
+        // Atgriež PDF failu
         return File(bytes, "application/pdf", $"receipt_{r.ReceiptNo}.pdf");
     }
 
+    // ==========================================================
+    // PDF ģenerēšanas metode (QuestPDF)
+    // Izveido vienkāršu čeka PDF ar pamata informāciju par darījumu
+    // ==========================================================
     private static byte[] GenerateReceiptPdf(
         string receiptNo,
         string kind,
@@ -228,43 +271,55 @@ public class ReceiptsController : ControllerBase
         string to,
         string? school)
     {
+        // Rakstām PDF uz MemoryStream, pēc tam atgriežam kā byte[]
         using var ms = new MemoryStream();
 
+        // QuestPDF dokumenta definīcija
         Document.Create(container =>
         {
             container.Page(page =>
             {
+                // Lapas pamata iestatījumi
                 page.Margin(30);
                 page.Size(PageSizes.A4);
 
+                // Saturs: kolonna ar tekstiem/atdalītāju
                 page.Content().Column(col =>
                 {
                     col.Spacing(10);
 
-                    col.Item().Text("TeenPay Receipt")
+                    // Virsraksts
+                    col.Item().Text("TeenPay atskaite par maksājumu.")
                         .FontSize(20).SemiBold();
 
-                    col.Item().Text($"Receipt #: {receiptNo}").FontSize(12);
-                    col.Item().Text($"Date: {createdAt:dd.MM.yyyy HH:mm}").FontSize(12);
-                    col.Item().Text($"Type: {kind}").FontSize(12);
+                    // Pamatinformācija
+                    col.Item().Text($"Kvīts #: {receiptNo}").FontSize(12);
+                    col.Item().Text($"Datums: {createdAt:dd.MM.yyyy HH:mm}").FontSize(12);
+                    col.Item().Text($"Tips: {kind}").FontSize(12);
 
+                    // Atdalītājs
                     col.Item().LineHorizontal(1);
 
-                    col.Item().Text($"From: {from}").FontSize(12);
-                    col.Item().Text($"To: {to}").FontSize(12);
+                    // Dalībnieki
+                    col.Item().Text($"No: {from}").FontSize(12);
+                    col.Item().Text($"Uz: {to}").FontSize(12);
 
+                    // Skola (ja ir)
                     if (!string.IsNullOrWhiteSpace(school))
-                        col.Item().Text($"School: {school}").FontSize(12);
+                        col.Item().Text($"Skola: {school}").FontSize(12);
 
-                    col.Item().PaddingTop(10).Text($"Amount: €{amount:0.00}")
+                    // Summa ar izcēlumu
+                    col.Item().PaddingTop(10).Text($"Summa: €{amount:0.00}")
                         .FontSize(16).SemiBold();
 
-                    col.Item().PaddingTop(20).Text("Thank you for using TeenPay.")
+                    // Pateicības teksts (vizuāli pelēkāks)
+                    col.Item().PaddingTop(20).Text("Paldies, ka izmantojat TeenPay!")
                         .FontSize(11).Italic().FontColor("#666666");
                 });
             });
         }).GeneratePdf(ms);
 
+        // Atgriež PDF kā masīvu
         return ms.ToArray();
     }
 }
