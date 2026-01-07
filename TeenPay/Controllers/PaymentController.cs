@@ -96,7 +96,7 @@ public class PaymentController : ControllerBase
         if (school.PosUserId == null)
             return BadRequest(new { error = "skolai_nav_pārdevēja" });
 
-        // ✅ Drošības pārbaude: maksājumu drīkst apstrādāt tikai konkrētās skolas POS
+        // Drošības pārbaude: maksājumu drīkst apstrādāt tikai konkrētās skolas POS
         // Ja skenē cits POS → atgriež kļūdu
         if (school.PosUserId.Value != mePosId)
             return BadRequest(new { error = "skolas_neatbilstība" });
@@ -113,7 +113,7 @@ public class PaymentController : ControllerBase
         if (child.Balance < amount)
             return BadRequest(new { error = "nepietiekami_līdzekļi" });
 
-        // ===== 7) Darījuma izpilde transakcijā (atomic) =====
+        // ===== 7) Darījuma izpilde transakcijā =====
         // DB transakcija nodrošina, ka bilances, transakcijas un čeki saglabājas kopā
         await using var tx = await _db.Database.BeginTransactionAsync();
 
@@ -187,7 +187,7 @@ public class PaymentController : ControllerBase
         // Atgriež statusu, bilances pēc darījuma un abu čeku identifikatorus
         return Ok(new
         {
-            status = "SUCCEEDED",
+            status = "SUCCESSED",
             amount,
             childBalanceAfter = child.Balance,
             posBalanceAfter = pos.Balance,

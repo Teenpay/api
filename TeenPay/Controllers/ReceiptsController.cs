@@ -116,7 +116,7 @@ public class ReceiptsController : ControllerBase
             // ja es esmu saņēmējs – ar plusu (ērti sarakstam/krāsošanai UI)
             var signed = (r.PayerUserId == meId) ? -r.Amount : r.Amount;
 
-            // ✅ Virziens: IN (ienākums) vai OUT (izdevums)
+            // Virziens: IN (ienākums) vai OUT (izdevums)
             var direction = signed >= 0 ? "IN" : "OUT";
 
             return new ReceiptDto
