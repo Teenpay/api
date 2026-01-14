@@ -152,7 +152,7 @@ public class TransactionsController : ControllerBase
                     if (from != null && senderUsernames.TryGetValue(from.userid, out var sn))
                         sender = sn;
                     else
-                        sender = "Vecāks"; // fallback, ja nevar noteikt precīzi
+                        sender = "-"; // fallback, ja nevar noteikt precīzi
 
                     receiver = meUsername; // bērns (pašreizējais lietotājs)
                 }
@@ -314,7 +314,7 @@ public class TransactionsController : ControllerBase
         foreach (var t in childTx)
         {
             // Bērna username, kam pieder šī transakcija (t.userid)
-            var meUsername = userNames.TryGetValue(t.userid, out var meU) ? meU : $"user#{t.userid}";
+            var meUsername = userNames.TryGetValue(t.userid, out var meU) ? meU : $"skolēns#{t.userid}";
 
             string sender = "—";
             string receiver = "—";
@@ -342,11 +342,11 @@ public class TransactionsController : ControllerBase
                     if (from != null && senderUsernames.TryGetValue(from.userid, out var sn))
                         sender = sn;
                     else
-                        sender = "parent";
+                        sender = "vecāks";
                 }
                 else
                 {
-                    sender = "parent";
+                    sender = "vecāks";
                 }
             }
 
@@ -358,7 +358,7 @@ public class TransactionsController : ControllerBase
                 sender = meUsername;
                 receiver = schools.TryGetValue(t.schoolid.Value, out var s)
                     ? s
-                    : $"school#{t.schoolid.Value}";
+                    : $"skola#{t.schoolid.Value}";
             }
 
             // Pievieno DTO (pat ja sender/receiver nav noteikts ideāli, tiek saglabāts ieraksts)

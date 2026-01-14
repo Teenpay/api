@@ -22,4 +22,5 @@ namespace TeenPay.Models
 
         public int? schoolid { get; set; }
     }
+
 }
